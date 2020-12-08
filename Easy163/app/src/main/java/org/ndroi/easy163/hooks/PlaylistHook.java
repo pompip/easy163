@@ -16,11 +16,14 @@ import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
 import java.util.List;
 
+import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
+
 /**
  * Created by andro on 2020/5/3.
  */
-public class PlaylistHook extends BaseHook
-{
+public class PlaylistHook extends BaseHook {
+    private static final String TAG = "PlaylistHook";
     private List<String> paths = Arrays.asList(
             "/playlist/detail",
             "/eapi/playlist/v4/detail",
@@ -42,20 +45,16 @@ public class PlaylistHook extends BaseHook
     );
 
     @Override
-    public boolean rule(Request request)
-    {
+    public boolean rule(Request request) {
         String method = request.getMethod();
         String host = request.getHeaderFields().get("Host");
         Log.d("check rule", host + "" + getPath(request));
-        if (!method.equals("POST") || !host.endsWith("music.163.com"))
-        {
+        if (!method.equals("POST") || !host.endsWith("music.163.com")) {
             return false;
         }
         String path = getPath(request);
-        for (String p : paths)
-        {
-            if (path.contains(p))
-            {
+        for (String p : paths) {
+            if (path.contains(p)) {
                 return true;
             }
         }
@@ -63,35 +62,47 @@ public class PlaylistHook extends BaseHook
     }
 
     @Override
-    public void hookResponse(Response response)
-    {
+    public void hookResponse(Response response) {
         super.hookResponse(response);
-        byte[] bytes = Crypto.aesDecrypt(response.getContent());
-        JSONObject jsonObject = JSONObject.parseObject(new String(bytes));
+        byte[] content = response.getContent();
+
+        Log.e(TAG, "hookResponse: "+content.length);
+
+        byte[] bytes = new byte[0];
+        try {
+            bytes = Crypto.aesDecrypt(content);
+        } catch (BadPaddingException | IllegalBlockSizeException e) {
+            e.printStackTrace();
+            return;
+        }
+
+        String text = new String(bytes);
+        Log.e(TAG, "hookResponse: "+text);
+        JSONObject jsonObject = JSONObject.parseObject(text);
         cacheKeywords(jsonObject);
         modifyPrivileges(jsonObject);
         bytes = JSONObject.toJSONString(jsonObject, SerializerFeature.WriteMapNullValue).getBytes();
-        bytes = Crypto.aesEncrypt(bytes);
+        try {
+            bytes = Crypto.aesEncrypt(bytes);
+        } catch (BadPaddingException | IllegalBlockSizeException e) {
+            e.printStackTrace();
+            return;
+        }
         response.setContent(bytes);
     }
 
-    private void cacheKeywords(JSONObject jsonObject)
-    {
-        JsonUtil.traverse(jsonObject, new JsonUtil.Rule()
-        {
+    private void cacheKeywords(JSONObject jsonObject) {
+        JsonUtil.traverse(jsonObject, new JsonUtil.Rule() {
             @Override
-            public void apply(JSONObject object)
-            {
+            public void apply(JSONObject object) {
                 if (object.containsKey("id") &&
                         object.containsKey("name") &&
-                        object.containsKey("ar"))
-                {
+                        object.containsKey("ar")) {
                     String songId = object.getString("id");
                     Keyword keyword = new Keyword();
                     keyword.id = songId;
                     keyword.applyRawSongName(object.getString("name"));
-                    for (Object singerObj : object.getJSONArray("ar"))
-                    {
+                    for (Object singerObj : object.getJSONArray("ar")) {
                         JSONObject singer = (JSONObject) singerObj;
                         keyword.singers.add(singer.getString("name"));
                     }
@@ -101,30 +112,23 @@ public class PlaylistHook extends BaseHook
         });
     }
 
-    private void modifyPrivileges(JSONObject jsonObject)
-    {
-        JsonUtil.traverse(jsonObject, new JsonUtil.Rule()
-        {
+    private void modifyPrivileges(JSONObject jsonObject) {
+        JsonUtil.traverse(jsonObject, new JsonUtil.Rule() {
             @Override
-            public void apply(JSONObject object)
-            {
-                if(object.containsKey("fee"))
-                {
+            public void apply(JSONObject object) {
+                if (object.containsKey("fee")) {
                     object.put("fee", 0);
                 }
                 if (object.containsKey("st") &&
                         object.containsKey("subp") &&
                         object.containsKey("pl") &&
-                        object.containsKey("dl"))
-                {
+                        object.containsKey("dl")) {
                     object.put("st", 0);
                     object.put("subp", 1);
-                    if (object.getIntValue("pl") == 0)
-                    {
+                    if (object.getIntValue("pl") == 0) {
                         object.put("pl", 320000);
                     }
-                    if (object.getIntValue("dl") == 0)
-                    {
+                    if (object.getIntValue("dl") == 0) {
                         object.put("dl", 320000);
                     }
                 }

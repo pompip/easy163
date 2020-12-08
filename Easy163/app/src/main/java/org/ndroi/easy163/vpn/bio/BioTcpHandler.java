@@ -3,12 +3,14 @@ package org.ndroi.easy163.vpn.bio;
 import android.net.VpnService;
 import android.os.Build;
 import android.util.Log;
+
 import org.ndroi.easy163.vpn.hookhttp.HookHttp;
 import org.ndroi.easy163.vpn.tcpip.IpUtil;
 import org.ndroi.easy163.vpn.tcpip.Packet;
 import org.ndroi.easy163.vpn.tcpip.TCBStatus;
 import org.ndroi.easy163.vpn.util.ByteBufferPool;
 import org.ndroi.easy163.vpn.util.ProxyException;
+
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -20,16 +22,14 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class BioTcpHandler implements Runnable
-{
+public class BioTcpHandler implements Runnable {
     BlockingQueue<Packet> queue;
 
     ConcurrentHashMap<String, TcpTunnel> tunnels = new ConcurrentHashMap();
 
     private static int HEADER_SIZE = Packet.IP4_HEADER_SIZE + Packet.TCP_HEADER_SIZE;
 
-    public static class TcpTunnel
-    {
+    public static class TcpTunnel {
         static AtomicInteger tunnelIds = new AtomicInteger(0);
         public final int tunnelId = tunnelIds.addAndGet(1);
 
@@ -59,19 +59,16 @@ public class BioTcpHandler implements Runnable
     private VpnService vpnService;
     BlockingQueue<ByteBuffer> networkToDeviceQueue;
 
-    public BioTcpHandler(BlockingQueue<Packet> queue, BlockingQueue<ByteBuffer> networkToDeviceQueue, VpnService vpnService)
-    {
+    public BioTcpHandler(BlockingQueue<Packet> queue, BlockingQueue<ByteBuffer> networkToDeviceQueue, VpnService vpnService) {
         this.queue = queue;
         this.vpnService = vpnService;
         this.networkToDeviceQueue = networkToDeviceQueue;
     }
 
-    private static void sendMultiPack(TcpTunnel tunnel, byte flag, byte[] data)
-    {
+    private static void sendMultiPack(TcpTunnel tunnel, byte flag, byte[] data) {
         int unitSize = ByteBufferPool.BUFFER_SIZE - HEADER_SIZE;
         int offset = 0;
-        while (offset < data.length)
-        {
+        while (offset < data.length) {
             int len = (offset + unitSize > data.length ? data.length - offset : unitSize);
             byte[] unit = new byte[len];
             System.arraycopy(data, offset, unit, 0, len);
@@ -80,12 +77,10 @@ public class BioTcpHandler implements Runnable
         }
     }
 
-    private static void sendTcpPack(TcpTunnel tunnel, byte flag, byte[] data)
-    {
+    private static void sendTcpPack(TcpTunnel tunnel, byte flag, byte[] data) {
 
         int dataLen = 0;
-        if (data != null)
-        {
+        if (data != null) {
             dataLen = data.length;
         }
         Packet packet = IpUtil.buildTcpPacket(tunnel.destinationAddress, tunnel.sourceAddress, flag,
@@ -94,10 +89,8 @@ public class BioTcpHandler implements Runnable
         ByteBuffer byteBuffer = ByteBufferPool.acquire();
         //
         byteBuffer.position(HEADER_SIZE);
-        if (data != null)
-        {
-            if (byteBuffer.remaining() < data.length)
-            {
+        if (data != null) {
+            if (byteBuffer.remaining() < data.length) {
                 System.currentTimeMillis();
             }
             byteBuffer.put(data);
@@ -108,40 +101,32 @@ public class BioTcpHandler implements Runnable
 
         tunnel.networkToDeviceQueue.offer(byteBuffer);
 
-        if ((flag & (byte) Packet.TCPHeader.SYN) != 0)
-        {
+        if ((flag & (byte) Packet.TCPHeader.SYN) != 0) {
             tunnel.mySequenceNum += 1;
         }
-        if ((flag & (byte) Packet.TCPHeader.FIN) != 0)
-        {
+        if ((flag & (byte) Packet.TCPHeader.FIN) != 0) {
             tunnel.mySequenceNum += 1;
         }
-        if ((flag & (byte) Packet.TCPHeader.ACK) != 0)
-        {
+        if ((flag & (byte) Packet.TCPHeader.ACK) != 0) {
             tunnel.mySequenceNum += dataLen;
         }
     }
 
-    private static class UpStreamWorker implements Runnable
-    {
+    private static class UpStreamWorker implements Runnable {
 
         TcpTunnel tunnel;
 
-        public UpStreamWorker(TcpTunnel tunnel)
-        {
+        public UpStreamWorker(TcpTunnel tunnel) {
             this.tunnel = tunnel;
         }
 
-        private void startDownStream()
-        {
+        private void startDownStream() {
             Thread t = new Thread(new DownStreamWorker(tunnel));
             t.start();
         }
 
-        private void connectRemote()
-        {
-            try
-            {
+        private void connectRemote() {
+            try {
                 //connect
                 SocketChannel remote = SocketChannel.open();
                 //tunnel.vpnService.protect(remote.socket());
@@ -156,8 +141,7 @@ public class BioTcpHandler implements Runnable
                 tunnel.destSocket = remote;
 
                 startDownStream();
-            } catch (Exception e)
-            {
+            } catch (Exception e) {
                 Log.e(TAG, e.getMessage(), e);
                 throw new ProxyException("connectRemote fail" + tunnel.destinationAddress.toString());
             }
@@ -165,69 +149,56 @@ public class BioTcpHandler implements Runnable
 
         int synCount = 0;
 
-        private void handleSyn(Packet packet)
-        {
+        private void handleSyn(Packet packet) {
 
-            if (tunnel.tcbStatus == TCBStatus.SYN_SENT)
-            {
+            if (tunnel.tcbStatus == TCBStatus.SYN_SENT) {
                 tunnel.tcbStatus = TCBStatus.SYN_RECEIVED;
             }
             Packet.TCPHeader tcpHeader = packet.tcpHeader;
-            if (synCount == 0)
-            {
+            if (synCount == 0) {
                 tunnel.mySequenceNum = 1;
                 tunnel.theirSequenceNum = tcpHeader.sequenceNumber;
                 tunnel.myAcknowledgementNum = tcpHeader.sequenceNumber + 1;
                 tunnel.theirAcknowledgementNum = tcpHeader.acknowledgementNumber;
-                if (tunnel.destinationAddress.getPort() == 443)
-                {
+                if (tunnel.destinationAddress.getPort() == 443) {
                     sendTcpPack(tunnel, (byte) (Packet.TCPHeader.ACK | Packet.TCPHeader.RST), null);
                     tunnel.tunnelCloseMsgQueue.add(tunnel.tunnelKey);
-                } else
-                {
+                } else {
                     sendTcpPack(tunnel, (byte) (Packet.TCPHeader.SYN | Packet.TCPHeader.ACK), null);
                 }
-            } else
-            {
+            } else {
                 tunnel.myAcknowledgementNum = tcpHeader.sequenceNumber + 1;
             }
             synCount += 1;
         }
 
-        private void writeToRemote(ByteBuffer buffer) throws IOException
-        {
-            if (tunnel.upActive)
-            {
-                if (tunnel.destinationAddress.getPort() == 80)
-                {
+        private void writeToRemote(ByteBuffer buffer) throws IOException {
+            if (tunnel.upActive) {
+                if (tunnel.destinationAddress.getPort() == 80) {
                     buffer = HookHttp.getInstance().checkAndHookRequest(tunnel, buffer);
                 }
-                if(tunnel.destSocket != null) // I don't know why need this
+                if (tunnel.destSocket != null) // I don't know why need this
                 {
                     tunnel.destSocket.write(buffer);
                 }
             }
         }
 
-        private void handleAck(Packet packet) throws IOException
-        {
+        private void handleAck(Packet packet) throws IOException {
 
-            if (tunnel.tcbStatus == TCBStatus.SYN_RECEIVED)
-            {
+            if (tunnel.tcbStatus == TCBStatus.SYN_RECEIVED) {
                 tunnel.tcbStatus = TCBStatus.ESTABLISHED;
             }
 
             Packet.TCPHeader tcpHeader = packet.tcpHeader;
             int payloadSize = packet.backingBuffer.remaining();
 
-            if (payloadSize == 0)
-            {
+            if (payloadSize == 0) {
                 return;
             }
 
             long newAck = tcpHeader.sequenceNumber + payloadSize;
-            if (newAck <= tunnel.myAcknowledgementNum)
-            {
+            if (newAck <= tunnel.myAcknowledgementNum) {
                 return;
             }
             tunnel.myAcknowledgementNum = tcpHeader.sequenceNumber;
@@ -237,8 +208,7 @@ public class BioTcpHandler implements Runnable
             sendTcpPack(tunnel, (byte) Packet.TCPHeader.ACK, null);
         }
 
-        private void handleFin(Packet packet)
-        {
+        private void handleFin(Packet packet) {
             tunnel.myAcknowledgementNum = packet.tcpHeader.sequenceNumber + 1;
             tunnel.theirAcknowledgementNum = packet.tcpHeader.acknowledgementNumber;
             sendTcpPack(tunnel, (byte) (Packet.TCPHeader.ACK), null);
@@ -246,69 +216,53 @@ public class BioTcpHandler implements Runnable
             tunnel.tcbStatus = TCBStatus.CLOSE_WAIT;
         }
 
-        private void handleRst(Packet packet)
-        {
-            try
-            {
-                synchronized (tunnel)
-                {
-                    if (tunnel.destSocket != null)
-                    {
+        private void handleRst(Packet packet) {
+            try {
+                synchronized (tunnel) {
+                    if (tunnel.destSocket != null) {
                         tunnel.destSocket.close();
                     }
 
                 }
-            } catch (IOException e)
-            {
+            } catch (IOException e) {
                 Log.e(TAG, "close error", e);
             }
 
-            synchronized (tunnel)
-            {
+            synchronized (tunnel) {
                 tunnel.upActive = false;
                 tunnel.downActive = false;
                 tunnel.tcbStatus = TCBStatus.CLOSE_WAIT;
             }
         }
 
-        private void loop()
-        {
-            while (true)
-            {
+        private void loop() {
+            while (true) {
                 Packet packet = null;
-                try
-                {
+                try {
                     packet = tunnel.tunnelInputQueue.take();
-                    synchronized (tunnel)
-                    {
+                    synchronized (tunnel) {
                         boolean end = false;
                         Packet.TCPHeader tcpHeader = packet.tcpHeader;
 
-                        if (tcpHeader.isSYN())
-                        {
+                        if (tcpHeader.isSYN()) {
                             handleSyn(packet);
                             end = true;
                         }
-                        if (!end && tcpHeader.isRST())
-                        {
+                        if (!end && tcpHeader.isRST()) {
                             handleRst(packet);
                             break;
                         }
-                        if (!end && tcpHeader.isFIN())
-                        {
+                        if (!end && tcpHeader.isFIN()) {
                             handleFin(packet);
                             end = true;
                         }
-                        if (!end && tcpHeader.isACK())
-                        {
+                        if (!end && tcpHeader.isACK()) {
                             handleAck(packet);
                         }
                     }
-                } catch (InterruptedException e)
-                {
+                } catch (InterruptedException e) {
                     e.printStackTrace();
-                } catch (IOException e)
-                {
+                } catch (IOException e) {
                     e.printStackTrace();
                     return;
                 }
@@ -316,99 +270,73 @@ public class BioTcpHandler implements Runnable
         }
 
         @Override
-        public void run()
-        {
-            try
-            {
-                if (tunnel.destinationAddress.getPort() != 443)
-                {
+        public void run() {
+            try {
+                if (tunnel.destinationAddress.getPort() != 443) {
                     connectRemote();
                 }
                 loop();
-            } catch (ProxyException e)
-            {
+            } catch (ProxyException e) {
                 e.printStackTrace();
-            } catch (Exception e)
-            {
+            } catch (Exception e) {
                 e.printStackTrace();
             }
         }
     }
 
-    public static boolean isClosedTunnel(TcpTunnel tunnel)
-    {
+    public static boolean isClosedTunnel(TcpTunnel tunnel) {
         return !tunnel.upActive && !tunnel.downActive;
     }
 
-    private static void closeDownStream(TcpTunnel tunnel)
-    {
-        synchronized (tunnel)
-        {
-            try
-            {
-                if (tunnel.destSocket != null && tunnel.destSocket.isOpen())
-                {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
-                    {
+    private static void closeDownStream(TcpTunnel tunnel) {
+        synchronized (tunnel) {
+            try {
+                if (tunnel.destSocket != null && tunnel.destSocket.isOpen()) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                         tunnel.destSocket.shutdownInput();
-                    } else
-                    {
+                    } else {
                         tunnel.destSocket.close();
                         tunnel.destSocket = null;
                     }
                 }
-            } catch (Exception e)
-            {
+            } catch (Exception e) {
                 e.printStackTrace();
             }
             sendTcpPack(tunnel, (byte) (Packet.TCPHeader.FIN | Packet.TCPHeader.ACK), null);
             tunnel.downActive = false;
-            if (isClosedTunnel(tunnel))
-            {
+            if (isClosedTunnel(tunnel)) {
                 tunnel.tunnelCloseMsgQueue.add(tunnel.tunnelKey);
             }
         }
     }
 
-    private static void closeUpStream(TcpTunnel tunnel)
-    {
-        synchronized (tunnel)
-        {
-            try
-            {
-                if (tunnel.destSocket != null && tunnel.destSocket.isOpen())
-                {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
-                    {
+    private static void closeUpStream(TcpTunnel tunnel) {
+        synchronized (tunnel) {
+            try {
+                if (tunnel.destSocket != null && tunnel.destSocket.isOpen()) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                         tunnel.destSocket.shutdownOutput();
-                    } else
-                    {
+                    } else {
                         tunnel.destSocket.close();
                         tunnel.destSocket = null;
                     }
                 }
 
-            } catch (Exception e)
-            {
+            } catch (Exception e) {
                 e.printStackTrace();
             }
             tunnel.upActive = false;
         }
     }
 
-    private static void closeRst(TcpTunnel tunnel)
-    {
-        synchronized (tunnel)
-        {
-            try
-            {
-                if (tunnel.destSocket != null && tunnel.destSocket.isOpen())
-                {
+    private static void closeRst(TcpTunnel tunnel) {
+        synchronized (tunnel) {
+            try {
+                if (tunnel.destSocket != null && tunnel.destSocket.isOpen()) {
                     tunnel.destSocket.close();
                     tunnel.destSocket = null;
                 }
-            } catch (Exception e)
-            {
+            } catch (Exception e) {
                 e.printStackTrace();
             }
             sendTcpPack(tunnel, (byte) Packet.TCPHeader.RST, null);
@@ -418,44 +346,34 @@ public class BioTcpHandler implements Runnable
         }
     }
 
-    private static class DownStreamWorker implements Runnable
-    {
+    private static class DownStreamWorker implements Runnable {
         TcpTunnel tunnel;
 
-        public DownStreamWorker(TcpTunnel tunnel)
-        {
+        public DownStreamWorker(TcpTunnel tunnel) {
             this.tunnel = tunnel;
         }
 
         @Override
-        public void run()
-        {
+        public void run() {
             String quitType = "rst";
-            try
-            {
-                while (true)
-                {
-                    ByteBuffer buffer = ByteBuffer.allocateDirect(4 * 1024);
-                    if (tunnel.destSocket == null)
-                    {
+            try {
+                while (true) {
+                    ByteBuffer buffer = ByteBuffer.allocateDirect(10 * 1024);
+                    if (tunnel.destSocket == null) {
                         throw new ProxyException("tunnel maybe closed");
                     }
 
                     int n = BioUtil.read(tunnel.destSocket, buffer);
 
-                    synchronized (tunnel)
-                    {
-                        if (n == -1)
-                        {
+
+                    synchronized (tunnel) {
+                        if (n == -1) {
                             quitType = "fin";
                             break;
-                        } else if (n == 0)
-                        {
+                        } else if (n == 0) {
                             Thread.sleep(50);
-                        } else
-                        {
-                            if (tunnel.tcbStatus != TCBStatus.CLOSE_WAIT)
-                            {
+                        } else {
+                            if (tunnel.tcbStatus != TCBStatus.CLOSE_WAIT) {
                                 buffer.flip();
                                 buffer = HookHttp.getInstance().checkAndHookResponse(tunnel, buffer);
                                 byte[] data = new byte[buffer.remaining()];
@@ -465,34 +383,27 @@ public class BioTcpHandler implements Runnable
                         }
                     }
                 }
-            } catch (ClosedChannelException e)
-            {
+            } catch (ClosedChannelException e) {
                 Log.w(TAG, String.format("channel closed %s", e.getMessage()));
                 quitType = "rst";
-            } catch (IOException e)
-            {
+            } catch (IOException e) {
                 Log.e(TAG, e.getMessage(), e);
                 quitType = "rst";
-            } catch (Exception e)
-            {
+            } catch (Exception e) {
                 quitType = "rst";
                 Log.e(TAG, "DownStreamWorker fail", e);
             }
-            synchronized (tunnel)
-            {
-                if (quitType.equals("fin"))
-                {
+            synchronized (tunnel) {
+                if (quitType.equals("fin")) {
                     closeDownStream(tunnel);
-                } else if (quitType.equals("rst"))
-                {
+                } else if (quitType.equals("rst")) {
                     closeRst(tunnel);
                 }
             }
         }
     }
 
-    private TcpTunnel initTunnel(Packet packet)
-    {
+    private TcpTunnel initTunnel(Packet packet) {
         TcpTunnel tunnel = new TcpTunnel();
         tunnel.sourceAddress = new InetSocketAddress(packet.ip4Header.sourceAddress, packet.tcpHeader.sourcePort);
         tunnel.destinationAddress = new InetSocketAddress(packet.ip4Header.destinationAddress, packet.tcpHeader.destinationPort);
@@ -507,13 +418,10 @@ public class BioTcpHandler implements Runnable
     public BlockingQueue<String> tunnelCloseMsgQueue = new ArrayBlockingQueue<>(1024);
 
     @Override
-    public void run()
-    {
+    public void run() {
 
-        while (true)
-        {
-            try
-            {
+        while (true) {
+            try {
                 Packet currentPacket = queue.take();
                 InetAddress destinationAddress = currentPacket.ip4Header.destinationAddress;
                 Packet.TCPHeader tcpHeader = currentPacket.tcpHeader;
@@ -522,28 +430,23 @@ public class BioTcpHandler implements Runnable
                 String ipAndPort = destinationAddress.getHostAddress() + ":" +
                         destinationPort + ":" + sourcePort;
 
-                while (true)
-                {
+                while (true) {
                     String s = this.tunnelCloseMsgQueue.poll();
-                    if (s == null)
-                    {
+                    if (s == null) {
                         break;
-                    } else
-                    {
+                    } else {
                         tunnels.remove(s);
                     }
                 }
 
                 TcpTunnel tcpTunnel = tunnels.get(ipAndPort);
-                if (tcpTunnel == null)
-                {
+                if (tcpTunnel == null) {
                     tcpTunnel = initTunnel(currentPacket);
                     tcpTunnel.tunnelKey = ipAndPort;
                     tunnels.put(ipAndPort, tcpTunnel);
                 }
                 tcpTunnel.tunnelInputQueue.offer(currentPacket);
-            } catch (Exception e)
-            {
+            } catch (Exception e) {
                 e.printStackTrace();
             }
         }

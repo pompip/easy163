@@ -12,6 +12,9 @@ import org.ndroi.easy163.utils.Song;
 import org.ndroi.easy163.vpn.hookhttp.Request;
 import org.ndroi.easy163.vpn.hookhttp.Response;
 
+import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
+
 /**
  * Created by andro on 2020/5/5.
  */
@@ -73,11 +76,25 @@ public class SongPlayHook extends BaseHook
     public void hookResponse(Response response)
     {
         super.hookResponse(response);
-        byte[] bytes = Crypto.aesDecrypt(response.getContent());
+        byte[] bytes = new byte[0];
+        try {
+            bytes = Crypto.aesDecrypt(response.getContent());
+        } catch (BadPaddingException | IllegalBlockSizeException e) {
+            e.printStackTrace();
+            return;
+        }
+        if (bytes==null){
+            return;
+        }
         JSONObject jsonObject = JSONObject.parseObject(new String(bytes));
         handleNoFreeSong(jsonObject);
         bytes = JSONObject.toJSONString(jsonObject, SerializerFeature.WriteMapNullValue).getBytes();
-        bytes = Crypto.aesEncrypt(bytes);
+        try {
+            bytes = Crypto.aesEncrypt(bytes);
+        } catch (BadPaddingException | IllegalBlockSizeException e) {
+            e.printStackTrace();
+            return;
+        }
         response.setContent(bytes);
     }
 }

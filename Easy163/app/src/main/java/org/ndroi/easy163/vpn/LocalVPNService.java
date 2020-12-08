@@ -10,12 +10,16 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.net.ProxyInfo;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
+
 import android.service.quicksettings.TileService;
 import android.util.Log;
+
 import org.ndroi.easy163.R;
 import org.ndroi.easy163.core.Cache;
 import org.ndroi.easy163.core.Local;
@@ -27,6 +31,7 @@ import org.ndroi.easy163.vpn.bio.BioTcpHandler;
 import org.ndroi.easy163.vpn.bio.BioUdpHandler;
 import org.ndroi.easy163.vpn.tcpip.Packet;
 import org.ndroi.easy163.vpn.util.ByteBufferPool;
+
 import java.io.Closeable;
 import java.io.FileDescriptor;
 import java.io.FileInputStream;
@@ -39,8 +44,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class LocalVPNService extends VpnService
-{
+public class LocalVPNService extends VpnService {
     private static final String TAG = LocalVPNService.class.getSimpleName();
     private static final String VPN_ADDRESS = "10.0.0.2"; // Only IPv4 support for now
     private static final String VPN_ROUTE = "0.0.0.0"; // Intercept everything
@@ -52,29 +56,23 @@ public class LocalVPNService extends VpnService
     private static Boolean isRunning = false;
     private static Context context = null;
 
-    public static Context getContext()
-    {
+    public static Context getContext() {
         return context;
     }
 
-    public static Boolean getIsRunning()
-    {
+    public static Boolean getIsRunning() {
         return isRunning;
     }
 
-    private BroadcastReceiver stopReceiver = new BroadcastReceiver()
-    {
+    private BroadcastReceiver stopReceiver = new BroadcastReceiver() {
         @Override
-        public void onReceive(Context context, Intent intent)
-        {
+        public void onReceive(Context context, Intent intent) {
             String cmd = intent.getStringExtra("cmd");
-            if(cmd.equals("stop"))
-            {
+            if (cmd.equals("stop")) {
                 executorService.shutdownNow();
                 cleanup();
                 LocalVPNService.this.stopSelf();
-            }else if(cmd.equals("check"))
-            {
+            } else if (cmd.equals("check")) {
                 Log.i(TAG, "checkServiceState received");
                 sendState();
             }
@@ -82,8 +80,7 @@ public class LocalVPNService extends VpnService
     };
 
     @Override
-    public void onCreate()
-    {
+    public void onCreate() {
         super.onCreate();
         context = getApplicationContext();
         setupVPN();
@@ -106,13 +103,11 @@ public class LocalVPNService extends VpnService
         Log.i(TAG, "Easy163 VPN 启动");
     }
 
-    private void startNotification()
-    {
+    private void startNotification() {
         String notificationId = "easy163";
         String notificationName = "easy163";
         NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-        {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(notificationId, notificationName, NotificationManager.IMPORTANCE_HIGH);
             notificationManager.createNotificationChannel(channel);
         }
@@ -124,44 +119,34 @@ public class LocalVPNService extends VpnService
                 .setSmallIcon(R.mipmap.icon)
                 .setContentTitle("Easy163")
                 .setContentText("正在运行...");
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-        {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             builder.setChannelId(notificationId);
         }
         Notification notification = builder.build();
         startForeground(1, notification);
     }
 
-    private void setupVPN()
-    {
-        try
-        {
-            if (vpnInterface == null)
-            {
+    private void setupVPN() {
+        try {
+            if (vpnInterface == null) {
                 Builder builder = new Builder();
                 builder.addAddress(VPN_ADDRESS, 32);
                 builder.addRoute(VPN_ROUTE, 0);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
-                {
-                    try
-                    {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    try {
                         builder.addAllowedApplication("com.netease.cloudmusic");
-                    }catch (PackageManager.NameNotFoundException e)
-                    {
+                    } catch (PackageManager.NameNotFoundException e) {
                         Log.d(TAG, "未检测到网易云音乐");
                     }
-                    try
-                    {
+                    try {
                         builder.addAllowedApplication("com.netease.cloudmusic.lite");
-                    }catch (PackageManager.NameNotFoundException e)
-                    {
+                    } catch (PackageManager.NameNotFoundException e) {
                         Log.d(TAG, "未检测到网易云音乐极速版");
                     }
                 }
                 vpnInterface = builder.setSession(getString(R.string.app_name)).establish();
             }
-        } catch (Exception e)
-        {
+        } catch (Exception e) {
             Log.e(TAG, "Easy163 VPN 启动失败");
             EasyLog.log("Easy163 VPN 启动失败");
             System.exit(0);
@@ -169,14 +154,12 @@ public class LocalVPNService extends VpnService
     }
 
     @Override
-    public int onStartCommand(Intent intent, int flags, int startId)
-    {
+    public int onStartCommand(Intent intent, int flags, int startId) {
         return START_STICKY;
     }
 
     @Override
-    public void onDestroy()
-    {
+    public void onDestroy() {
         super.onDestroy();
         executorService.shutdownNow();
         cleanup();
@@ -186,39 +169,57 @@ public class LocalVPNService extends VpnService
         Log.i(TAG, "Stopped");
     }
 
-    private void cleanup()
-    {
+    private void cleanup() {
         deviceToNetworkTCPQueue = null;
         deviceToNetworkUDPQueue = null;
         networkToDeviceQueue = null;
         closeResources(vpnInterface);
     }
 
-    private void sendState()
-    {
+    private void sendState() {
         MainActivity.resetBroadcastReceivedState();
-        Intent replyIntent=  new Intent("service");
+        Intent replyIntent = new Intent("service");
         replyIntent.putExtra("isRunning", isRunning);
         LocalBroadcastManager.getInstance(this).sendBroadcast(replyIntent);
         Log.i(TAG, "sendState");
     }
 
-    private static void closeResources(Closeable... resources)
-    {
-        for (Closeable resource : resources)
-        {
-            try
-            {
+    private static void closeResources(Closeable... resources) {
+        for (Closeable resource : resources) {
+            try {
                 resource.close();
-            } catch (IOException e)
-            {
+            } catch (IOException e) {
                 // Ignore
             }
         }
     }
 
-    private static class VPNRunnable implements Runnable
-    {
+    static class WriteVpnThread implements Runnable {
+        FileChannel vpnOutput;
+        private BlockingQueue<ByteBuffer> networkToDeviceQueue;
+
+        WriteVpnThread(FileChannel vpnOutput, BlockingQueue<ByteBuffer> networkToDeviceQueue) {
+            this.vpnOutput = vpnOutput;
+            this.networkToDeviceQueue = networkToDeviceQueue;
+        }
+
+        @Override
+        public void run() {
+            while (true) {
+                try {
+                    ByteBuffer bufferFromNetwork = networkToDeviceQueue.take();
+                    bufferFromNetwork.flip();
+                    while (bufferFromNetwork.hasRemaining()) {
+                        int w = vpnOutput.write(bufferFromNetwork);
+                    }
+                } catch (Exception e) {
+                    Log.i(TAG, "WriteVpnThread fail", e);
+                }
+            }
+        }
+    }
+
+    private static class VPNRunnable implements Runnable {
         private static final String TAG = VPNRunnable.class.getSimpleName();
 
         private FileDescriptor vpnFileDescriptor;
@@ -230,89 +231,45 @@ public class LocalVPNService extends VpnService
         public VPNRunnable(FileDescriptor vpnFileDescriptor,
                            BlockingQueue<Packet> deviceToNetworkUDPQueue,
                            BlockingQueue<Packet> deviceToNetworkTCPQueue,
-                           BlockingQueue<ByteBuffer> networkToDeviceQueue)
-        {
+                           BlockingQueue<ByteBuffer> networkToDeviceQueue) {
             this.vpnFileDescriptor = vpnFileDescriptor;
             this.deviceToNetworkUDPQueue = deviceToNetworkUDPQueue;
             this.deviceToNetworkTCPQueue = deviceToNetworkTCPQueue;
             this.networkToDeviceQueue = networkToDeviceQueue;
         }
 
-        static class WriteVpnThread implements Runnable
-        {
-            FileChannel vpnOutput;
-            private BlockingQueue<ByteBuffer> networkToDeviceQueue;
-
-            WriteVpnThread(FileChannel vpnOutput, BlockingQueue<ByteBuffer> networkToDeviceQueue)
-            {
-                this.vpnOutput = vpnOutput;
-                this.networkToDeviceQueue = networkToDeviceQueue;
-            }
-
-            @Override
-            public void run()
-            {
-                while (true)
-                {
-                    try
-                    {
-                        ByteBuffer bufferFromNetwork = networkToDeviceQueue.take();
-                        bufferFromNetwork.flip();
-                        while (bufferFromNetwork.hasRemaining())
-                        {
-                            int w = vpnOutput.write(bufferFromNetwork);
-                        }
-                    } catch (Exception e)
-                    {
-                        Log.i(TAG, "WriteVpnThread fail", e);
-                    }
-                }
-            }
-        }
 
         @Override
-        public void run()
-        {
+        public void run() {
             FileChannel vpnInput = new FileInputStream(vpnFileDescriptor).getChannel();
             FileChannel vpnOutput = new FileOutputStream(vpnFileDescriptor).getChannel();
             Thread t = new Thread(new WriteVpnThread(vpnOutput, networkToDeviceQueue));
             t.start();
-            try
-            {
-                while (!Thread.interrupted())
-                {
+            try {
+                while (!Thread.interrupted()) {
                     ByteBuffer bufferToNetwork = ByteBufferPool.acquire();
                     int readBytes = vpnInput.read(bufferToNetwork);
-                    if (readBytes > 0)
-                    {
+                    if (readBytes > 0) {
                         bufferToNetwork.flip();
                         Packet packet = new Packet(bufferToNetwork);
-                        if (packet.isUDP())
-                        {
+                        if (packet.isUDP()) {
                             deviceToNetworkUDPQueue.offer(packet);
-                        } else if (packet.isTCP())
-                        {
+                        } else if (packet.isTCP()) {
                             deviceToNetworkTCPQueue.offer(packet);
-                        } else
-                        {
+                        } else {
                             //Log.w(TAG, String.format("Unknown packet protocol type %d", packet.ip4Header.protocolNum));
                         }
-                    } else
-                    {
-                        try
-                        {
+                    } else {
+                        try {
                             Thread.sleep(50);
-                        } catch (InterruptedException e)
-                        {
+                        } catch (InterruptedException e) {
                             e.printStackTrace();
                         }
                     }
                 }
-            } catch (IOException e)
-            {
+            } catch (IOException e) {
                 Log.w(TAG, e.toString(), e);
-            } finally
-            {
+            } finally {
                 closeResources(vpnInput, vpnOutput);
             }
         }

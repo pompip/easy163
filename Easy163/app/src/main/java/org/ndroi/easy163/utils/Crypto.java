@@ -1,5 +1,7 @@
 package org.ndroi.easy163.utils;
 
+import android.annotation.SuppressLint;
+
 import com.alibaba.fastjson.JSONObject;
 
 import java.security.InvalidKeyException;
@@ -30,48 +32,20 @@ public class Crypto
             decryptCipher.init(Cipher.DECRYPT_MODE, key);
             encryptCipher = Cipher.getInstance("AES/ECB/PKCS7Padding");
             encryptCipher.init(Cipher.ENCRYPT_MODE, key);
-        } catch (NoSuchAlgorithmException e)
-        {
-            e.printStackTrace();
-        } catch (NoSuchPaddingException e)
-        {
-            e.printStackTrace();
-        } catch (InvalidKeyException e)
+        } catch (NoSuchAlgorithmException | InvalidKeyException | NoSuchPaddingException e)
         {
             e.printStackTrace();
         }
     }
 
-    public static byte[] aesDecrypt(byte[] bytes)
-    {
-        byte[] result = null;
-        try
-        {
-            result = decryptCipher.doFinal(bytes);
-        } catch (BadPaddingException e)
-        {
-            e.printStackTrace();
-        } catch (IllegalBlockSizeException e)
-        {
-            e.printStackTrace();
-        }
-        return result;
+    public static byte[] aesDecrypt(byte[] bytes) throws BadPaddingException, IllegalBlockSizeException {
+
+        return decryptCipher.doFinal(bytes);
     }
 
-    public static byte[] aesEncrypt(byte[] bytes)
-    {
-        byte[] result = null;
-        try
-        {
-            result = encryptCipher.doFinal(bytes);
-        } catch (BadPaddingException e)
-        {
-            e.printStackTrace();
-        } catch (IllegalBlockSizeException e)
-        {
-            e.printStackTrace();
-        }
-        return result;
+    public static byte[] aesEncrypt(byte[] bytes) throws BadPaddingException, IllegalBlockSizeException {
+
+        return encryptCipher.doFinal(bytes);
     }
 
     private static byte[] hexStringToByteArray(String hexString)
@@ -88,17 +62,15 @@ public class Crypto
 
     private static String ByteArrayToHexString(byte[] bytes)
     {
-        String hexStr = "";
-        for (int i = 0; i < bytes.length; i++)
-        {
-            String hex = Integer.toHexString(bytes[i] & 0xFF).toUpperCase();
-            if (hex.length() == 1)
-            {
+        StringBuilder hexStr = new StringBuilder();
+        for (byte aByte : bytes) {
+            String hex = Integer.toHexString(aByte & 0xFF).toUpperCase();
+            if (hex.length() == 1) {
                 hex = "0" + hex;
             }
-            hexStr += hex;
+            hexStr.append(hex);
         }
-        return hexStr;
+        return hexStr.toString();
     }
 
     public static class Request
@@ -107,8 +79,7 @@ public class Crypto
         public JSONObject json;
     }
 
-    public static Request decryptRequestBody(String body)
-    {
+    public static Request decryptRequestBody(String body) throws BadPaddingException, IllegalBlockSizeException {
         Request request = new Request();
         byte[] encryptedBytes = hexStringToByteArray(body.substring(7));
         byte[] rawBytes = aesDecrypt(encryptedBytes);
@@ -119,8 +90,7 @@ public class Crypto
         return request;
     }
 
-    public static String encryptRequestBody(Request request)
-    {
+    public static String encryptRequestBody(Request request) throws BadPaddingException, IllegalBlockSizeException {
         String jsonText = request.json.toString();
         String message = "nobody" + request.path + "use" + jsonText + "md5forencrypt";
         String digest = "";
